@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createReelContainer, getContainerStatus, getPublishingQuota, InstagramApiError, publishContainer } from "@/lib/instagram/api";
 
 function mockFetch(body: unknown, status = 200) {
-  const fn = vi.fn(async (_url: string | URL, _init?: RequestInit) => new Response(JSON.stringify(body), { status }));
+  const fn = vi.fn<(url: string | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify(body), { status }));
   vi.stubGlobal("fetch", fn);
   return fn;
 }
