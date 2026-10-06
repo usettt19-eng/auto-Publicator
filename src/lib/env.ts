@@ -17,6 +17,7 @@ export const env = {
   tokenEncryptionKey: () => required("TOKEN_ENCRYPTION_KEY"),
   anthropicModel: () => process.env.ANTHROPIC_MODEL ?? "claude-opus-5-5",
   approvalLinkSecret: () => required("APPROVAL_LINK_SECRET"),
+  instagramWebhookVerifyToken: () => required("INSTAGRAM_WEBHOOK_VERIFY_TOKEN"),
   // Opcionales: sin ellas el video usa fondos de color y no lleva voz en off.
   pexelsApiKey: () => process.env.PEXELS_API_KEY || null,
   elevenLabsApiKey: () => process.env.ELEVENLABS_API_KEY || null,

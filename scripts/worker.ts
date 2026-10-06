@@ -18,12 +18,20 @@ import { handlers, markReelFailed } from "@/worker/handlers";
 const POLL_MS = Number(process.env.WORKER_POLL_MS ?? 3000);
 const SCHEDULER_MS = Number(process.env.SCHEDULER_MS ?? 30_000);
 // WORKER_KINDS permite separar workers (p. ej. uno solo para publicar y otro para renders).
-const KINDS = (process.env.WORKER_KINDS?.split(",") ?? ["publish_reel", "generate_script", "render_reel"]) as Job["kind"][];
+const KINDS = (process.env.WORKER_KINDS?.split(",") ?? [
+  "publish_reel",
+  "handle_comment",
+  "handle_dm",
+  "generate_script",
+  "render_reel",
+]) as Job["kind"][];
+// Trabajos rápidos y sensibles al tiempo: se atienden antes que guiones y renders.
+const PRIORITY: Job["kind"][] = ["publish_reel", "handle_comment", "handle_dm"];
 let stopping = false;
 
 async function runJob(job: Job) {
   const started = Date.now();
-  console.info(`[worker] ${job.kind} ${job.payload.reelId} (intento ${job.attempts})`);
+  console.info(`[worker] ${job.kind} ${job.payload.reelId ?? job.payload.commentId ?? job.payload.dmId} (intento ${job.attempts})`);
   try {
     await handlers[job.kind](job);
     await completeJob(job.id);
@@ -47,11 +55,12 @@ async function runJob(job: Job) {
 }
 
 async function claimNext(): Promise<Job | null> {
-  if (KINDS.includes("publish_reel")) {
-    const publish = await claimJob(["publish_reel"]);
-    if (publish) return publish;
+  const urgent = KINDS.filter((k) => PRIORITY.includes(k));
+  if (urgent.length) {
+    const job = await claimJob(urgent);
+    if (job) return job;
   }
-  const rest = KINDS.filter((k) => k !== "publish_reel");
+  const rest = KINDS.filter((k) => !PRIORITY.includes(k));
   return rest.length ? claimJob(rest) : null;
 }
 
@@ -70,7 +79,7 @@ async function main() {
   console.info(`[worker] iniciado (${KINDS.join(", ")})`);
   while (!stopping) {
     await runScheduler();
-    // Publicar tiene prioridad: un render largo no debe retrasar un reel programado.
+    // Publicar y responder tienen prioridad: un render largo no debe retrasarlos.
     const job = await claimNext().catch((err) => {
       console.error("[worker] error al leer la cola", err);
       return null;

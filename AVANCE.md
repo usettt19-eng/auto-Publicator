@@ -1,6 +1,6 @@
 # Avance del proyecto: Auto-Publicator
 
-Última actualización: 6 de octubre de 2026 (fases 1-4) · Rama: `claude/nice-cerf-sjsfhv`
+Última actualización: 6 de octubre de 2026 (fases 1-5) · Rama: `claude/nice-cerf-sjsfhv`
 
 ## Resumen
 
@@ -10,10 +10,10 @@
 | 2 | Ideas y guiones con Claude, voz, clips de stock y render de video | ✅ Código · ⏳ falta probar con claves |
 | 3 | Dashboard de aprobación y emails con enlace firmado | ✅ Código · ⏳ falta probar con claves |
 | 4 | Scheduler y publicación automática en Instagram | ✅ Código · ⏳ falta probar con claves |
-| 5 | Comentarios y DMs por palabra clave | ⬜ Pendiente |
+| 5 | Comentarios y DMs por palabra clave, respuestas con IA | ✅ Código · ⏳ falta probar con claves |
 | 6 | Servidor MCP, analíticas y Stripe | ⬜ Pendiente |
 
-**Bloqueo actual:** conseguir las claves (checklist abajo) para probar las fases 1-4 de punta a punta.
+**Bloqueo actual:** conseguir las claves (checklist abajo) para probar las fases 1-5 de punta a punta.
 
 ---
 
@@ -78,19 +78,48 @@
 - **`/settings`:** zona horaria y hora de publicación por defecto, más las **3 mejores horas** según
   el engagement de tus últimas 50 publicaciones, con un botón para usarlas.
 
+## ✅ Fase 5: comentarios y DMs
+
+- **Webhook** `/api/webhooks/instagram`: verificación de Meta y firma `X-Hub-Signature-256`. Guarda
+  cada comentario y DM una sola vez aunque Meta reenvíe el evento.
+- **`/automations`, reglas de palabra clave:** si alguien comenta "GROW" (o lo que configures),
+  respondemos al comentario (opcional) y le enviamos un **DM privado con el enlace**.
+  - También funcionan en los DMs que te envían.
+  - Plantillas con `{usuario}` y `{link}`, contador de veces activada, y opción de activar o
+    desactivar cada regla.
+- **Respuestas con IA al resto de comentarios**, en 3 modos:
+  - *Desactivadas*
+  - *Con aprobación* (Claude sugiere y tú apruebas)
+  - *Automáticas*
+  
+  Claude clasifica el comentario (pregunta, elogio, queja, spam, tóxico…) y no responde al spam ni
+  a los tóxicos.
+- **`/inbox`:** respuestas por aprobar (editables), historial de comentarios y conversación de DMs.
+- **Seguridad:**
+  - Nunca responde a comentarios de tu propia cuenta (sin bucles).
+  - Cada paso se marca al completarse para no duplicar respuestas en un reintento.
+  - Dos clics en "Responder" no envían dos respuestas.
+- El worker atiende primero publicar y responder, y después los renders.
+- **Cabecera adaptada a móvil:** la navegación se desplaza en horizontal.
+
 ### Verificado
 
-- [x] 63 tests unitarios. Incluyen 9 escenarios de publicación con un Instagram simulado (contenedor
-  caducado, rechazado, lento, ya publicado, cuota agotada…) y el formato real de las llamadas a la API
+- [x] 75 tests unitarios. Incluyen:
+  - 9 escenarios de publicación con un Instagram simulado (contenedor caducado, rechazado, lento, ya
+    publicado, cuota agotada…) y el formato real de las llamadas a la API.
+  - Palabras clave, plantillas, decisiones sobre comentarios, parseo de webhooks y firma.
+- [x] Webhook probado con la app arrancada: verificación de Meta, firma inválida rechazada (401) y
+  500 cuando la BD falla, para que Meta reintente
 - [x] Typecheck, lint y build de producción
 - [x] Render real de un reel de ejemplo con la plantilla (`npm run render:sample`): MP4 H.264 1080×1920
-- [x] Las 3 migraciones ejecutadas en Postgres embebido. Comprobados RLS, la cola atómica, el contador
-  de uso y el scheduler (solo encola reels aprobados y vencidos, una única vez)
+- [x] Las 4 migraciones ejecutadas en Postgres embebido. Comprobados RLS, la cola atómica, el contador
+  de uso, el scheduler y la idempotencia de comentarios y respuestas a DMs
 - [x] El worker arranca (solo se detiene por falta de claves)
 - [ ] Login, OAuth de Instagram y auditoría con claves reales
 - [ ] Guion y render con Claude, Pexels y ElevenLabs reales
 - [ ] Email real con Resend
 - [ ] Publicación real en una cuenta tester de Instagram
+- [ ] Webhooks reales de comentarios y DMs (palabra clave → DM)
 
 ---
 
@@ -108,6 +137,7 @@ Copia `.env.example` a `.env.local` y rellena:
 | `INSTAGRAM_APP_SECRET` | Conectar Instagram (⚠️ secreta) | Mismo lugar | [ ] |
 | `TOKEN_ENCRYPTION_KEY` | Cifrar tokens | `openssl rand -base64 32` | [ ] |
 | `APPROVAL_LINK_SECRET` | Firmar enlaces de email | `openssl rand -base64 32` | [ ] |
+| `INSTAGRAM_WEBHOOK_VERIFY_TOKEN` | Verificar los webhooks de Meta | Lo inventas tú (cualquier texto largo) y lo pegas en Meta | [ ] |
 | `NEXT_PUBLIC_APP_URL` | Redirects y enlaces | Tu URL pública HTTPS (en local, ngrok o cloudflared) | [ ] |
 | `PEXELS_API_KEY` | Clips de stock *(opcional)* | [pexels.com/api](https://www.pexels.com/api/) (gratis) | [ ] |
 | `ELEVENLABS_API_KEY` | Voz en off *(opcional)* | [elevenlabs.io](https://elevenlabs.io) → Profile → API key | [ ] |
@@ -122,7 +152,7 @@ sin ElevenLabs, video sin voz; sin Resend, el enlace de aprobación se escribe e
 
 **Supabase**
 - [ ] Crear el proyecto
-- [ ] Aplicar las 3 migraciones de `supabase/migrations/`, en orden
+- [ ] Aplicar las 4 migraciones de `supabase/migrations/`, en orden
 - [ ] Authentication → URL Configuration: añadir `{APP_URL}/auth/callback` a las Redirect URLs
 
 **Meta / Instagram**
@@ -130,6 +160,8 @@ sin ElevenLabs, video sin voz; sin Resend, el enlace de aprobación se escribe e
 - [ ] Crear una app de tipo **Business** y añadir *Instagram → API setup with Instagram login*
 - [ ] Registrar la redirect URI `{APP_URL}/api/instagram/callback` (HTTPS)
 - [ ] Añadir tu cuenta como **Instagram tester** y aceptar la invitación
+- [ ] **Webhooks:** callback `{APP_URL}/api/webhooks/instagram`, el verify token y suscripción a
+      `comments` y `messages`
 - [ ] Iniciar **App Review** y la verificación del negocio pronto (puede tardar semanas)
 
 **Anthropic**
@@ -153,6 +185,8 @@ sin ElevenLabs, video sin voz; sin Resend, el enlace de aprobación se escribe e
 8. Comprueba el email (o el enlace en el log del worker) y abre `/r/...`.
 9. Para probar la publicación, aprueba un reel con fecha a 6-10 minutos vista. En el log del worker
    verás `[scheduler]` y `[publish]`, y el reel aparecerá en *Publicados* con "Ver en Instagram".
+10. Crea una regla en `/automations` (p. ej. GROW), comenta "grow" en un reel desde otra cuenta y
+    comprueba la respuesta y el DM. Pon el modo IA en *Con aprobación* y revisa `/inbox`.
 
 Sin ninguna clave puedes ver la plantilla de video con `npm run render:sample` (genera
 `out/sample.mp4`) o editarla en vivo con `npm run remotion:studio`.
@@ -187,6 +221,18 @@ Sin ninguna clave puedes ver la plantilla de video con `npm run render:sample` (
 ---
 
 ## 📜 Registro de avances
+
+### 6 oct 2026: fase 5
+- Webhooks de Meta, reglas de palabra clave con respuesta pública y DM privado, respuestas a
+  comentarios con Claude (apagado, con aprobación o automático), bandeja de entrada y página de
+  automatizaciones.
+- **Bugs encontrados y corregidos al revisar:**
+  - Al probar el webhook con la app arrancada: si la BD fallaba al buscar la cuenta, el error se
+    ignoraba, se respondía 200 y **el comentario se perdía** (Meta no reintenta tras un 200). Ahora
+    responde 500.
+  - El mismo patrón en el procesamiento: sin reglas por un fallo de BD, una palabra clave podía
+    acabar respondida por la IA en lugar de enviar el DM. Ahora se reintenta.
+  - La cabecera con 6 secciones se desbordaba en móvil.
 
 ### 6 oct 2026: fase 4 (commit `bd512e7`)
 - Scheduler en el worker y publicación de reels con la Content Publishing API de Instagram.
@@ -225,15 +271,14 @@ Sin ninguna clave puedes ver la plantilla de video con `npm run render:sample` (
 
 ---
 
-## ⏭️ Siguiente: fase 5 (comentarios y DMs)
+## ⏭️ Siguiente: fase 6 (servidor MCP, analíticas y Stripe)
 
-- [ ] Webhooks de Meta: verificación (`hub.challenge`) y firma `X-Hub-Signature-256`
-- [ ] Guardar comentarios entrantes de los reels publicados (`comments`)
-- [ ] Reglas de palabra clave (`keyword_rules`): si alguien comenta "GROW", responder al comentario
-      y enviarle un DM privado con el enlace (Private Replies)
-- [ ] Respuestas a comentarios generadas por Claude con la voz de la marca, en modo automático o
-      con aprobación, más filtro de spam y toxicidad
-- [ ] Bandeja de entrada en el dashboard (comentarios y DMs)
+- [ ] **Servidor MCP** (HTTP, autenticado por usuario) con herramientas: `get_brand_kit`,
+      `generate_reel_ideas`, `create_reel`, `list_pending_reels`, `approve_reel`, `request_changes`,
+      `schedule_reel`, `get_analytics`, `set_keyword_rule`
+- [ ] **Analíticas por reel** (Insights API): reproducciones, alcance, guardados, compartidos, comentarios
+- [ ] **Resumen semanal con Claude** y ajuste del calendario según lo que mejor funcionó
+- [ ] **Stripe:** planes, checkout, portal de cliente y webhooks que actualizan `subscriptions`
 
-> La fase 5 necesita la app de Meta con los permisos `instagram_business_manage_comments` e
-> `instagram_business_manage_messages`, y una URL HTTPS pública para los webhooks.
+> Lo que se puede hacer sin claves: el servidor MCP (probándolo con un cliente MCP local) y la lógica
+> de analíticas con datos simulados. Stripe necesita al menos claves de prueba (`sk_test_…`).

@@ -20,8 +20,9 @@ import {
   getRecentMedia,
   publishContainer,
 } from "@/lib/instagram/api";
+import { handleComment, handleDm } from "@/lib/engagement/process";
 import { currentPeriodStart } from "@/lib/plans";
-import { enqueueJob, PermanentJobError, type Job } from "@/lib/reels/jobs";
+import { enqueueJob, PermanentJobError, requireReelId, type Job } from "@/lib/reels/jobs";
 import { publishReel } from "@/lib/reels/publish-flow";
 import { buildFullCaption, type ReelScript } from "@/lib/reels/schema";
 import { assertPublicHost } from "@/lib/scraper/url-guard";
@@ -80,7 +81,7 @@ async function upload(objectPath: string, body: Buffer, contentType: string): Pr
 
 export async function handleGenerateScript(job: Job) {
   const admin = createAdminClient();
-  const reel = await loadReel(job.payload.reelId);
+  const reel = await loadReel(requireReelId(job));
   if (!["queued", "changes_requested", "scripting"].includes(reel.status)) return;
 
   await setReel(reel.id, { status: "scripting" });
@@ -183,7 +184,7 @@ async function buildScenes(reel: ReelRow, script: ReelScript): Promise<ReelScene
 }
 
 export async function handleRenderReel(job: Job) {
-  const reel = await loadReel(job.payload.reelId);
+  const reel = await loadReel(requireReelId(job));
   // "queued" llega desde "Reintentar" cuando el guion ya existía.
   if (!["rendering", "queued"].includes(reel.status) || !reel.script_json) return;
   if (reel.status === "queued") await setReel(reel.id, { status: "rendering" });
@@ -293,7 +294,7 @@ export async function handlePublishReel(job: Job) {
   const { data: reel, error } = await admin
     .from("reels")
     .select("id, workspace_id, status, caption, video_url, scheduled_at, ig_container_id, instagram_account_id")
-    .eq("id", job.payload.reelId)
+    .eq("id", requireReelId(job))
     .single<PublishRow>();
   if (error) throw error;
   if (reel.status !== "publishing") return;
@@ -355,7 +356,7 @@ export async function handlePublishReel(job: Job) {
   console.info(`[publish] reel ${reel.id}: ${outcome}`);
 }
 
-const STAGE_FOR: Record<Job["kind"], "script" | "render" | "publish"> = {
+const STAGE_FOR: Partial<Record<Job["kind"], "script" | "render" | "publish">> = {
   generate_script: "script",
   render_reel: "render",
   publish_reel: "publish",
@@ -363,6 +364,7 @@ const STAGE_FOR: Record<Job["kind"], "script" | "render" | "publish"> = {
 
 /** Marca el reel como fallido cuando su trabajo agota los reintentos o falla sin remedio. */
 export async function markReelFailed(job: Job, message: string) {
+  if (!job.payload.reelId || !STAGE_FOR[job.kind]) return;
   await setReel(job.payload.reelId, { status: "failed", error: message.slice(0, 1000), failed_stage: STAGE_FOR[job.kind] });
 }
 
@@ -370,4 +372,6 @@ export const handlers: Record<Job["kind"], (job: Job) => Promise<void>> = {
   generate_script: handleGenerateScript,
   render_reel: handleRenderReel,
   publish_reel: handlePublishReel,
+  handle_comment: async (job) => handleComment(job.payload.commentId ?? ""),
+  handle_dm: async (job) => handleDm(job.payload.dmId ?? ""),
 };

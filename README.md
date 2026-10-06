@@ -11,7 +11,7 @@ web y la identidad de marca del usuario. Nada se publica sin aprobación humana.
 | 2 | Calendario de ideas, guiones con Claude y render de video (Remotion) | ✅ |
 | 3 | Dashboard de aprobación y emails con enlace firmado | ✅ |
 | 4 | Scheduler y auto-posting en Instagram | ✅ |
-| 5 | Comentarios y DMs por palabra clave | Pendiente |
+| 5 | Comentarios y DMs por palabra clave, respuestas con IA | ✅ |
 | 6 | Servidor MCP, analíticas y Stripe | Pendiente |
 
 ## Stack
@@ -54,6 +54,10 @@ src/lib/reels/publish-flow.ts Publicación idempotente (contenedor → FINISHED 
 src/lib/reels/best-hours.ts Mejores horas según el engagement histórico
 src/worker/handlers.ts      Trabajos del worker: guion → render → email · publicación
   settings/                 Zona horaria, hora de publicación y mejores horas
+  inbox/                    Bandeja: aprobar respuestas, comentarios y DMs
+  automations/              Reglas de palabra clave y modo de respuesta con IA
+  api/webhooks/instagram/   Webhooks de Meta (verificación + firma)
+src/lib/engagement/         Palabras clave, parseo de webhooks, respuestas con Claude y procesamiento
 scripts/worker.ts           Bucle del worker (npm run worker)
 scripts/render-sample.ts    Render de ejemplo sin claves (npm run render:sample)
 tests/                      Tests unitarios
@@ -195,3 +199,38 @@ media_publish → ig_media_id + permalink → published (+ uso reels_published)
 
 - Los trabajos `publish_reel` se atienden antes que los renders.
 - Con `WORKER_KINDS=publish_reel` puedes tener un worker dedicado solo a publicar.
+
+## Comentarios y DMs (fase 5)
+
+```
+Meta ──webhook──▶ /api/webhooks/instagram  (firma X-Hub-Signature-256 con INSTAGRAM_APP_SECRET)
+                   │ guarda comments/dms (idempotente por id de Instagram) y encola el trabajo
+                   ▼ worker
+   ¿palabra clave? ──sí──▶ respuesta pública (opcional) + DM privado con el enlace
+        │no
+        ▼ modo IA: off → nada · approval → sugerencia en /inbox · auto → Claude responde
+```
+
+**Configuración en Meta** (App Dashboard → Instagram → API setup with Instagram login → Webhooks)
+
+1. Callback URL: `{NEXT_PUBLIC_APP_URL}/api/webhooks/instagram`
+2. Verify token: el valor de `INSTAGRAM_WEBHOOK_VERIFY_TOKEN`
+3. Suscríbete a los campos `comments` y `messages`.
+4. La cuenta tiene que estar suscrita a la app. Ocurre al conectar Instagram con los permisos
+   `instagram_business_manage_comments` e `instagram_business_manage_messages`.
+
+**Comportamiento**
+
+- **Palabras clave:** sin distinguir mayúsculas ni tildes y solo como palabra completa ("GROW" no
+  coincide con "GROWTH"). Si varias coinciden, gana la más larga. Las plantillas admiten
+  `{usuario}` y `{link}`.
+- **DM al comentar una palabra clave:** usa *private replies* de Instagram (un DM por comentario,
+  hasta 7 días después). En los DMs entrantes, la regla responde dentro de la ventana de 24 h.
+- **Sin bucles:** nunca se responde a comentarios de la propia cuenta.
+- **Sin duplicados:**
+  - Cada paso (respuesta pública y DM) se marca al completarse, así que un reintento no lo repite.
+  - Desde la bandeja, el envío reclama el comentario de forma atómica: dos clics no envían dos
+    respuestas.
+- **Respuestas con IA:** Claude clasifica cada comentario (pregunta, elogio, queja, spam,
+  tóxico…). No responde al spam ni a los tóxicos, y no inventa precios ni promesas.
+- **Errores de base de datos:** el webhook responde 500 para que Meta reintente; no se pierden eventos.

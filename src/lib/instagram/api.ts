@@ -201,3 +201,35 @@ export async function getPublishingQuota(igUserId: string, accessToken: string) 
   const entry = body.data?.[0];
   return { used: entry?.quota_usage ?? 0, total: entry?.config?.quota_total ?? 100 };
 }
+
+// ---------------------------------------------------------------------------
+// Comentarios y mensajes
+// ---------------------------------------------------------------------------
+
+/** Responde públicamente a un comentario. */
+export async function replyToComment(commentId: string, message: string, accessToken: string): Promise<string> {
+  const body = await request<{ id: string }>(
+    `${GRAPH_BASE}/${GRAPH_VERSION}/${commentId}/replies`,
+    form({ message, access_token: accessToken }),
+  );
+  return body.id;
+}
+
+/**
+ * Envía un DM. Con `commentId` es una "private reply" al autor de un comentario (1 por comentario,
+ * hasta 7 días después); con `recipientId`, un mensaje normal dentro de la ventana de 24 h.
+ */
+export async function sendInstagramMessage(opts: {
+  igUserId: string;
+  accessToken: string;
+  text: string;
+  to: { commentId: string } | { recipientId: string };
+}): Promise<string | null> {
+  const recipient = "commentId" in opts.to ? { comment_id: opts.to.commentId } : { id: opts.to.recipientId };
+  const body = await request<{ message_id?: string }>(`${GRAPH_BASE}/${GRAPH_VERSION}/${opts.igUserId}/messages`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${opts.accessToken}`, "content-type": "application/json" },
+    body: JSON.stringify({ recipient, message: { text: opts.text } }),
+  });
+  return body.message_id ?? null;
+}

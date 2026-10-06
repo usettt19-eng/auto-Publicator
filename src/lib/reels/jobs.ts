@@ -3,8 +3,16 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export { DeferJobError, PermanentJobError } from "./job-errors";
 
-export type JobKind = "generate_script" | "render_reel" | "publish_reel";
-export type JobPayload = { reelId: string; feedback?: string };
+export type JobKind = "generate_script" | "render_reel" | "publish_reel" | "handle_comment" | "handle_dm";
+export type JobPayload = { reelId?: string; feedback?: string; commentId?: string; dmId?: string };
+
+export const REEL_JOB_KINDS: JobKind[] = ["generate_script", "render_reel", "publish_reel"];
+
+/** Los trabajos de reels siempre llevan reelId. */
+export function requireReelId(job: { payload: JobPayload }): string {
+  if (!job.payload.reelId) throw new Error("Trabajo sin reelId");
+  return job.payload.reelId;
+}
 export type Job = {
   id: string;
   workspace_id: string;
