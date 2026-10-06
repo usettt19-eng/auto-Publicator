@@ -8,8 +8,8 @@ web y la identidad de marca del usuario. Nada se publica sin aprobación humana.
 | Fase | Contenido | Estado |
 | --- | --- | --- |
 | 1 | Scaffold, auth, conexión de Instagram, auditoría de marca y Brand Kit editable | ✅ |
-| 2 | Generación de guiones y render de video (Remotion) | Pendiente |
-| 3 | Dashboard de aprobación y emails | Pendiente |
+| 2 | Calendario de ideas, guiones con Claude y render de video (Remotion) | ✅ |
+| 3 | Dashboard de aprobación y emails con enlace firmado | ✅ |
 | 4 | Scheduler y auto-posting | Pendiente |
 | 5 | Comentarios y DMs por palabra clave | Pendiente |
 | 6 | Servidor MCP, analíticas y Stripe | Pendiente |
@@ -17,7 +17,8 @@ web y la identidad de marca del usuario. Nada se publica sin aprobación humana.
 ## Stack
 
 Next.js 16 (App Router) · TypeScript · Tailwind 4 · Supabase (Postgres, Auth y RLS) ·
-Anthropic SDK · Instagram API con Instagram Login · Vitest.
+Anthropic SDK · Instagram API con Instagram Login · Remotion · Pexels · ElevenLabs · Resend ·
+Vitest.
 
 ## Estructura
 
@@ -41,18 +42,32 @@ src/app/
   brand/                    Editor del Brand Kit
   api/instagram/            Inicio y callback de OAuth
   api/audits/               Iniciar una auditoría (POST) y consultar su estado (GET)
-tests/                      Tests de cifrado, guarda SSRF, extracción y Brand Kit
+  ideas/                    Plan de ideas con Claude y paso a producción
+  reels/                    Revisión: aprobar, programar, pedir cambios, rechazar
+  r/[token]/                Revisión desde el email, sin iniciar sesión
+src/lib/reels/              Esquemas, estados, calendario, cola de trabajos, producción y revisión
+src/lib/media/              Clips de Pexels y voz de ElevenLabs
+src/lib/approval-token.ts   Enlaces firmados (HMAC) de aprobación por email
+src/lib/email.ts            Email "reel listo para revisar" (Resend)
+src/remotion/               Plantilla de video 9:16 con la identidad de la marca
+src/worker/handlers.ts      Trabajos del worker: guion → voz y clips → render → subida → email
+scripts/worker.ts           Bucle del worker (npm run worker)
+scripts/render-sample.ts    Render de ejemplo sin claves (npm run render:sample)
+tests/                      Tests unitarios
 ```
 
 ## Puesta en marcha
 
 1. `npm install`
 2. `cp .env.example .env.local` y rellena las variables (ver abajo).
-3. Aplica la migración: `supabase db push`, o pega
-   `supabase/migrations/20261006000000_initial_schema.sql` en el SQL Editor.
+3. Aplica las migraciones de `supabase/migrations/` en orden: `supabase db push`, o pega cada
+   archivo en el SQL Editor.
 4. `npm run dev` y abre http://localhost:3000
+5. En otra terminal, `npm run worker` (procesa guiones y renders).
 
-Comandos: `npm test`, `npm run typecheck`, `npm run lint` y `npm run build`.
+Comandos: `npm test`, `npm run typecheck`, `npm run lint`, `npm run build`,
+`npm run worker`, `npm run render:sample` (video de ejemplo en `out/`) y `npm run remotion:studio`
+(editor visual de la plantilla).
 
 ### Supabase
 
@@ -108,3 +123,37 @@ rechaza la petición por política, la API la reintenta con un modelo de respald
 
 > En producción conviene mover la auditoría a una cola (BullMQ o Supabase Queues) si supera el
 > `maxDuration` de tu plataforma. La tabla `jobs` ya existe para ello.
+
+## Producción de reels (fases 2 y 3)
+
+```
+/ideas ──Claude──▶ reel_ideas ──"Producir"──▶ reels (queued) + job generate_script
+                                                      │  worker
+                       Claude escribe el guion por escenas ◀┘
+                       ▼
+             job render_reel: voz (ElevenLabs) + clips (Pexels) + Remotion → MP4 en Storage
+                       ▼
+             reels (ready) + email con enlace firmado /r/{token}
+                       ▼
+     Aprobar (+ fecha) → approved   ·   Pedir cambios → nueva revisión   ·   Rechazar → rejected
+```
+
+- **Límites por plan** (`src/lib/plans.ts`): free 10, self-serve 100 y done-for-you 130 reels al
+  mes. Se comprueban al pasar ideas a producción.
+- **Cola:** tabla `jobs` + función `claim_job` (`FOR UPDATE SKIP LOCKED`), así que puedes lanzar
+  varios workers. Cada trabajo se reintenta hasta 3 veces (30 s, 2 min); después el reel pasa a
+  `failed` con el error visible y un botón "Reintentar".
+- **Video:** 1080×1920 a 30 fps. Usa los colores primarios, la primera fuente (Google Fonts) y
+  el logo del Brand Kit, con subtítulos palabra a palabra. Sin `PEXELS_API_KEY` usa fondos con
+  degradado de marca; sin `ELEVENLABS_API_KEY` no hay voz y la duración sale del guion.
+- **Aprobación:** nada pasa a `approved` sin una acción humana. Si no eliges fecha, se programa en
+  el siguiente día libre a la `posting_hour` del workspace (18:00 por defecto, en su zona horaria).
+  Los enlaces del email caducan a los 14 días y dejan de valer si el reel se regenera. La página
+  del enlace exige pulsar un botón, así que los escáneres de email no pueden aprobar por error.
+- **Almacenamiento:** el bucket `reels` es público porque Instagram necesita descargar el video
+  desde una URL pública. Las rutas llevan UUIDs y solo el servidor puede escribir.
+- **Worker:** necesita Chromium. Remotion lo descarga solo; si ya tienes uno, indícalo en
+  `REMOTION_BROWSER_EXECUTABLE`. No puede ejecutarse en funciones serverless; usa un servidor o
+  contenedor (Railway, Fly.io, un VPS…) o Remotion Lambda más adelante.
+- **Licencia de Remotion:** es gratis para particulares y empresas de hasta 3 personas. Por encima,
+  necesitas una licencia de empresa (remotion.pro).

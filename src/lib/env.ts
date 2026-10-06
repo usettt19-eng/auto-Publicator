@@ -16,4 +16,9 @@ export const env = {
   instagramAppSecret: () => required("INSTAGRAM_APP_SECRET"),
   tokenEncryptionKey: () => required("TOKEN_ENCRYPTION_KEY"),
   anthropicModel: () => process.env.ANTHROPIC_MODEL ?? "claude-opus-5-5",
+  approvalLinkSecret: () => required("APPROVAL_LINK_SECRET"),
+  // Opcionales: sin ellas el video usa fondos de color y no lleva voz en off.
+  pexelsApiKey: () => process.env.PEXELS_API_KEY || null,
+  elevenLabsApiKey: () => process.env.ELEVENLABS_API_KEY || null,
+  elevenLabsVoiceId: () => process.env.ELEVENLABS_VOICE_ID || undefined,
 };

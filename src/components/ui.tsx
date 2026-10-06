@@ -25,6 +25,12 @@ export function Header({ email }: { email?: string }) {
         </a>
         {email && (
           <div className="flex items-center gap-4 text-sm text-muted">
+            <a href="/reels" className="hover:text-foreground">
+              Reels
+            </a>
+            <a href="/ideas" className="hover:text-foreground">
+              Ideas
+            </a>
             <a href="/brand" className="hover:text-foreground">
               Brand Kit
             </a>

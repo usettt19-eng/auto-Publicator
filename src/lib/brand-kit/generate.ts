@@ -1,7 +1,5 @@
 import "server-only";
-import Anthropic from "@anthropic-ai/sdk";
-import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
-import { env } from "@/lib/env";
+import { generateStructured } from "@/lib/ai/claude";
 import type { InstagramMedia, InstagramProfile } from "@/lib/instagram/api";
 import type { WebsiteSnapshot } from "@/lib/scraper/scrape";
 import { BrandKitSchema, normalizeBrandKit, type BrandKit } from "./schema";
@@ -48,30 +46,14 @@ function buildUserContent(website: WebsiteSnapshot, instagram: InstagramSnapshot
   ].join("\n");
 }
 
-export class BrandKitGenerationError extends Error {}
-
 export async function generateBrandKit(
   website: WebsiteSnapshot,
   instagram: InstagramSnapshot | null,
 ): Promise<BrandKit> {
-  const client = new Anthropic();
-  const response = await client.beta.messages.parse({
-    model: env.anthropicModel(),
-    max_tokens: 16000,
-    thinking: { type: "adaptive" },
-    output_config: { effort: "medium", format: betaZodOutputFormat(BrandKitSchema) },
-    // Si el modelo rechaza la petición por política, la API reintenta con un modelo de respaldo.
-    betas: ["server-side-fallback-2026-07-01"],
-    fallbacks: "default",
+  const kit = await generateStructured({
+    schema: BrandKitSchema,
     system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: buildUserContent(website, instagram) }],
+    user: buildUserContent(website, instagram),
   });
-
-  if (response.stop_reason === "refusal") {
-    throw new BrandKitGenerationError("El modelo rechazó generar el Brand Kit");
-  }
-  if (response.stop_reason === "max_tokens" || !response.parsed_output) {
-    throw new BrandKitGenerationError("La respuesta del modelo no contenía un Brand Kit válido");
-  }
-  return normalizeBrandKit(response.parsed_output);
+  return normalizeBrandKit(kit);
 }
