@@ -222,7 +222,7 @@ Sin ninguna clave puedes ver la plantilla de video con `npm run render:sample` (
 
 ## 📜 Registro de avances
 
-### 6 oct 2026: fase 5
+### 6 oct 2026: fase 5 (commit `689526b`)
 - Webhooks de Meta, reglas de palabra clave con respuesta pública y DM privado, respuestas a
   comentarios con Claude (apagado, con aprobación o automático), bandeja de entrada y página de
   automatizaciones.
