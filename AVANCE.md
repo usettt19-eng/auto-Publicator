@@ -266,7 +266,7 @@ Sin ninguna clave puedes ver la plantilla de video con `npm run render:sample` (
 
 ## 📜 Registro de avances
 
-### 6 oct 2026: fase 6
+### 6 oct 2026: fase 6 (commit `31e25c6`)
 - Servidor MCP con 13 herramientas y claves de API, analíticas con métricas automáticas y resumen
   semanal con Claude que añade ideas al plan, y pagos con Stripe (checkout, portal y webhook).
 - **Bugs encontrados y corregidos al revisar:**
