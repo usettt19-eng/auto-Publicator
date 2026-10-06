@@ -1,6 +1,6 @@
 # Avance del proyecto: Auto-Publicator
 
-Última actualización: 6 de octubre de 2026 (fases 1-3) · Rama: `claude/nice-cerf-sjsfhv`
+Última actualización: 6 de octubre de 2026 (fases 1-4) · Rama: `claude/nice-cerf-sjsfhv`
 
 ## Resumen
 
@@ -9,11 +9,11 @@
 | 1 | Scaffold, login, conexión de Instagram, auditoría de marca y Brand Kit | ✅ Código · ⏳ falta probar con claves |
 | 2 | Ideas y guiones con Claude, voz, clips de stock y render de video | ✅ Código · ⏳ falta probar con claves |
 | 3 | Dashboard de aprobación y emails con enlace firmado | ✅ Código · ⏳ falta probar con claves |
-| 4 | Scheduler y publicación automática en Instagram | ⬜ Pendiente |
+| 4 | Scheduler y publicación automática en Instagram | ✅ Código · ⏳ falta probar con claves |
 | 5 | Comentarios y DMs por palabra clave | ⬜ Pendiente |
 | 6 | Servidor MCP, analíticas y Stripe | ⬜ Pendiente |
 
-**Bloqueo actual:** conseguir las claves (checklist abajo) para probar las fases 1-3 de punta a punta.
+**Bloqueo actual:** conseguir las claves (checklist abajo) para probar las fases 1-4 de punta a punta.
 
 ---
 
@@ -56,18 +56,41 @@
   iniciar sesión. Caduca a los 14 días y deja de valer si el reel se regenera.
 - **Historial** de cada acción en `approval_events`.
 - **Regla central:** nada pasa a "Aprobado" sin una acción humana, y solo los reels aprobados
-  podrán publicarse (fase 4).
+  se publican.
+
+## ✅ Fase 4: publicación automática
+
+- **Scheduler** dentro del worker: cada 30 s pasa a "Publicando" los reels aprobados cuya hora llegó
+  y encola su publicación. Lo hace en una sola operación atómica, así que nunca se encola dos veces.
+- **Publicación en Instagram:**
+  1. Crea el contenedor `REELS`.
+  2. Espera a que Instagram procese el video.
+  3. Comprueba el límite diario de publicaciones.
+  4. Publica y guarda el id y el enlace del post. El reel pasa a "Publicado", con un enlace **Ver en Instagram**.
+- **Sin duplicados:** si el worker se cae justo después de publicar, el siguiente intento detecta
+  que ya está publicado y lo recupera sin volver a publicarlo.
+- **Límite diario agotado:** se aplaza 1 hora sin gastar reintentos.
+- **Errores definitivos:** si Instagram rechaza el video, el token caducó o no hay cuenta conectada,
+  el reel pasa a "Falló" con el motivo. **Reintentar** lo devuelve a "Pendiente de aprobación" para
+  elegir otra fecha.
+- **Prioridad:** publicar va antes que renderizar; también se puede tener un worker solo para publicar
+  (`WORKER_KINDS=publish_reel`).
+- **`/settings`:** zona horaria y hora de publicación por defecto, más las **3 mejores horas** según
+  el engagement de tus últimas 50 publicaciones, con un botón para usarlas.
 
 ### Verificado
 
-- [x] 46 tests unitarios: estados, calendario y zonas horarias, guiones, tokens, Pexels, alineación de voz, colores, cifrado, SSRF y Brand Kit
+- [x] 63 tests unitarios. Incluyen 9 escenarios de publicación con un Instagram simulado (contenedor
+  caducado, rechazado, lento, ya publicado, cuota agotada…) y el formato real de las llamadas a la API
 - [x] Typecheck, lint y build de producción
 - [x] Render real de un reel de ejemplo con la plantilla (`npm run render:sample`): MP4 H.264 1080×1920
-- [x] Las 2 migraciones ejecutadas en Postgres embebido; comprobados RLS, la cola atómica y el contador de uso
+- [x] Las 3 migraciones ejecutadas en Postgres embebido. Comprobados RLS, la cola atómica, el contador
+  de uso y el scheduler (solo encola reels aprobados y vencidos, una única vez)
 - [x] El worker arranca (solo se detiene por falta de claves)
 - [ ] Login, OAuth de Instagram y auditoría con claves reales
 - [ ] Guion y render con Claude, Pexels y ElevenLabs reales
 - [ ] Email real con Resend
+- [ ] Publicación real en una cuenta tester de Instagram
 
 ---
 
@@ -99,7 +122,7 @@ sin ElevenLabs, video sin voz; sin Resend, el enlace de aprobación se escribe e
 
 **Supabase**
 - [ ] Crear el proyecto
-- [ ] Aplicar las 2 migraciones de `supabase/migrations/`, en orden
+- [ ] Aplicar las 3 migraciones de `supabase/migrations/`, en orden
 - [ ] Authentication → URL Configuration: añadir `{APP_URL}/auth/callback` a las Redirect URLs
 
 **Meta / Instagram**
@@ -128,6 +151,8 @@ sin ElevenLabs, video sin voz; sin Resend, el enlace de aprobación se escribe e
 7. Cuando pase a *Para aprobar*: revisa el video, pide un cambio y comprueba que se regenera; después
    apruébalo.
 8. Comprueba el email (o el enlace en el log del worker) y abre `/r/...`.
+9. Para probar la publicación, aprueba un reel con fecha a 6-10 minutos vista. En el log del worker
+   verás `[scheduler]` y `[publish]`, y el reel aparecerá en *Publicados* con "Ver en Instagram".
 
 Sin ninguna clave puedes ver la plantilla de video con `npm run render:sample` (genera
 `out/sample.mp4`) o editarla en vivo con `npm run remotion:studio`.
@@ -163,6 +188,19 @@ Sin ninguna clave puedes ver la plantilla de video con `npm run render:sample` (
 
 ## 📜 Registro de avances
 
+### 6 oct 2026: fase 4
+- Scheduler en el worker y publicación de reels con la Content Publishing API de Instagram.
+- Flujo de publicación idempotente, con recuperación tras caídas, aplazamiento por cuota y errores
+  definitivos frente a reintentables.
+- `/settings` con zona horaria, hora de publicación y mejores horas según el engagement.
+- **Bugs encontrados y corregidos al revisar:**
+  - Marcar un trabajo como fallido definitivo calculaba una fecha inválida (`4 ** número enorme`).
+    Ahora existe una opción `permanent` explícita.
+  - Un contenedor creado antes de editar el caption podía publicarse con el caption viejo. Ahora
+    solo se reutiliza en reintentos del mismo trabajo.
+  - La lista de zonas horarias se calculaba en el navegador y en el servidor, y podía no coincidir.
+    Ahora se calcula solo en el servidor.
+
 ### 6 oct 2026: fases 2 y 3 (commit `f151eea`)
 - Plan de ideas con Claude (`/ideas`) y paso a producción con límite mensual por plan.
 - Worker: guion por escenas → voz (ElevenLabs) → clips (Pexels) → render (Remotion) → Storage → email.
@@ -187,14 +225,15 @@ Sin ninguna clave puedes ver la plantilla de video con `npm run render:sample` (
 
 ---
 
-## ⏭️ Siguiente: fase 4 (publicación automática)
+## ⏭️ Siguiente: fase 5 (comentarios y DMs)
 
-- [ ] Scheduler (cron cada minuto) que busca reels `approved` con `scheduled_at` alcanzada
-- [ ] Content Publishing API: contenedor `REELS` → esperar a `FINISHED` → `media_publish`
-- [ ] Idempotencia: marcar `publishing` de forma atómica y guardar `ig_container_id` para no publicar dos veces
-- [ ] Respetar el límite diario de publicaciones por API de cada cuenta
-- [ ] Guardar `ig_media_id` y `permalink`; pasar a `published`
-- [ ] Sugerir las mejores horas según el engagement histórico
+- [ ] Webhooks de Meta: verificación (`hub.challenge`) y firma `X-Hub-Signature-256`
+- [ ] Guardar comentarios entrantes de los reels publicados (`comments`)
+- [ ] Reglas de palabra clave (`keyword_rules`): si alguien comenta "GROW", responder al comentario
+      y enviarle un DM privado con el enlace (Private Replies)
+- [ ] Respuestas a comentarios generadas por Claude con la voz de la marca, en modo automático o
+      con aprobación, más filtro de spam y toxicidad
+- [ ] Bandeja de entrada en el dashboard (comentarios y DMs)
 
-> La fase 4 necesita la app de Meta con el permiso `instagram_business_content_publish`
-> (funciona en modo desarrollo con cuentas tester).
+> La fase 5 necesita la app de Meta con los permisos `instagram_business_manage_comments` e
+> `instagram_business_manage_messages`, y una URL HTTPS pública para los webhooks.

@@ -18,24 +18,28 @@ export default async function ReelsPage({ searchParams }: PageProps<"/reels">) {
   const { supabase, user, workspace } = await requireWorkspace();
   const { data } = await supabase
     .from("reels")
-    .select("id, status, title, caption, video_url, thumbnail_url, scheduled_at, error, updated_at")
+    .select("id, status, title, caption, video_url, thumbnail_url, scheduled_at, error, updated_at, ig_permalink, failed_stage, published_at")
     .eq("workspace_id", workspace.id)
     .order("updated_at", { ascending: false })
     .limit(300);
-  const reels = (data ?? []) as (ReviewableReel & { updated_at: string })[];
+  const reels = (data ?? []) as (ReviewableReel & { updated_at: string; published_at: string | null })[];
 
   const counts = Object.fromEntries(TABS.map((t) => [t.key, reels.filter((r) => t.statuses.includes(r.status)).length]));
   const tab = TABS.find((t) => t.key === tabParam) ?? TABS[0];
   const visible = reels
     .filter((r) => tab.statuses.includes(r.status))
     .sort((a, b) =>
-      tab.key === "scheduled" ? (a.scheduled_at ?? "").localeCompare(b.scheduled_at ?? "") : b.updated_at.localeCompare(a.updated_at),
+      tab.key === "scheduled"
+        ? (a.scheduled_at ?? "").localeCompare(b.scheduled_at ?? "")
+        : tab.key === "published"
+          ? (b.published_at ?? "").localeCompare(a.published_at ?? "")
+          : b.updated_at.localeCompare(a.updated_at),
     );
 
   return (
     <>
       <Header email={user.email} />
-      <AutoRefresh active={counts.production > 0} />
+      <AutoRefresh active={counts.production > 0 || reels.some((r) => r.status === "publishing")} />
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-4 py-10">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h1 className="text-2xl font-semibold">Reels</h1>

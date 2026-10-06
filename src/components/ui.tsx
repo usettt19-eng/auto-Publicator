@@ -34,6 +34,9 @@ export function Header({ email }: { email?: string }) {
             <a href="/brand" className="hover:text-foreground">
               Brand Kit
             </a>
+            <a href="/settings" className="hover:text-foreground">
+              Ajustes
+            </a>
             <span className="hidden sm:inline">{email}</span>
             <form action="/auth/signout" method="post">
               <button className="hover:text-foreground">Salir</button>

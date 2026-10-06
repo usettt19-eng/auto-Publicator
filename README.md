@@ -10,7 +10,7 @@ web y la identidad de marca del usuario. Nada se publica sin aprobación humana.
 | 1 | Scaffold, auth, conexión de Instagram, auditoría de marca y Brand Kit editable | ✅ |
 | 2 | Calendario de ideas, guiones con Claude y render de video (Remotion) | ✅ |
 | 3 | Dashboard de aprobación y emails con enlace firmado | ✅ |
-| 4 | Scheduler y auto-posting | Pendiente |
+| 4 | Scheduler y auto-posting en Instagram | ✅ |
 | 5 | Comentarios y DMs por palabra clave | Pendiente |
 | 6 | Servidor MCP, analíticas y Stripe | Pendiente |
 
@@ -50,7 +50,10 @@ src/lib/media/              Clips de Pexels y voz de ElevenLabs
 src/lib/approval-token.ts   Enlaces firmados (HMAC) de aprobación por email
 src/lib/email.ts            Email "reel listo para revisar" (Resend)
 src/remotion/               Plantilla de video 9:16 con la identidad de la marca
-src/worker/handlers.ts      Trabajos del worker: guion → voz y clips → render → subida → email
+src/lib/reels/publish-flow.ts Publicación idempotente (contenedor → FINISHED → cuota → publish)
+src/lib/reels/best-hours.ts Mejores horas según el engagement histórico
+src/worker/handlers.ts      Trabajos del worker: guion → render → email · publicación
+  settings/                 Zona horaria, hora de publicación y mejores horas
 scripts/worker.ts           Bucle del worker (npm run worker)
 scripts/render-sample.ts    Render de ejemplo sin claves (npm run render:sample)
 tests/                      Tests unitarios
@@ -157,3 +160,38 @@ rechaza la petición por política, la API la reintenta con un modelo de respald
   contenedor (Railway, Fly.io, un VPS…) o Remotion Lambda más adelante.
 - **Licencia de Remotion:** es gratis para particulares y empresas de hasta 3 personas. Por encima,
   necesitas una licencia de empresa (remotion.pro).
+
+## Publicación automática (fase 4)
+
+```
+reel approved + scheduled_at alcanzada
+   │  scheduler del worker (cada 30 s): enqueue_due_publications()
+   ▼  approved → publishing + job publish_reel (atómico, sin duplicados)
+contenedor REELS (video_url público + caption) ── se guarda ig_container_id
+   ▼  esperar status_code = FINISHED (hasta 4 min; si no, reintento reutilizando el contenedor)
+comprobar cuota de 24 h ── agotada → se aplaza 1 h sin gastar intento
+   ▼
+media_publish → ig_media_id + permalink → published (+ uso reels_published)
+```
+
+**Garantías contra duplicados**
+
+- Solo el scheduler pasa un reel de `approved` a `publishing`, y lo hace en una única sentencia
+  con `FOR UPDATE SKIP LOCKED`.
+- Si el worker muere después de publicar pero antes de guardar, el siguiente intento ve el
+  contenedor en `PUBLISHED`. Entonces busca el reel entre las publicaciones recientes (por caption
+  y fecha) y lo marca como publicado sin volver a publicar.
+- Un contenedor solo se reutiliza en reintentos del mismo trabajo. En una nueva aprobación se crea
+  otro, porque el caption pudo cambiar.
+
+**Errores**
+
+- Si Instagram rechaza el video (`ERROR`), el token caducó o no hay cuenta conectada, el reel pasa
+  a `failed` sin más reintentos.
+- "Reintentar" devuelve el reel a *Pendiente de aprobación* para elegir otra fecha.
+- Los fallos de red se reintentan hasta 3 veces.
+
+**Prioridad**
+
+- Los trabajos `publish_reel` se atienden antes que los renders.
+- Con `WORKER_KINDS=publish_reel` puedes tener un worker dedicado solo a publicar.

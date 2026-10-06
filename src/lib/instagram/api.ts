@@ -137,3 +137,67 @@ export async function getRecentMedia(accessToken: string, limit = 30): Promise<I
   const body = await request<{ data: InstagramMedia[] }>(url.toString());
   return body.data ?? [];
 }
+
+// ---------------------------------------------------------------------------
+// Content Publishing API (reels)
+// ---------------------------------------------------------------------------
+
+export type ContainerStatus = "IN_PROGRESS" | "FINISHED" | "ERROR" | "EXPIRED" | "PUBLISHED";
+
+function form(params: Record<string, string>) {
+  return { method: "POST", body: new URLSearchParams(params) } satisfies RequestInit;
+}
+
+/** Crea el contenedor del reel; Instagram descarga el video de `videoUrl` en segundo plano. */
+export async function createReelContainer(opts: {
+  igUserId: string;
+  accessToken: string;
+  videoUrl: string;
+  caption: string;
+}): Promise<string> {
+  const body = await request<{ id: string }>(
+    `${GRAPH_BASE}/${GRAPH_VERSION}/${opts.igUserId}/media`,
+    form({
+      media_type: "REELS",
+      video_url: opts.videoUrl,
+      caption: opts.caption,
+      share_to_feed: "true",
+      access_token: opts.accessToken,
+    }),
+  );
+  return body.id;
+}
+
+export async function getContainerStatus(containerId: string, accessToken: string) {
+  const url = new URL(`${GRAPH_BASE}/${GRAPH_VERSION}/${containerId}`);
+  url.searchParams.set("fields", "status_code,status");
+  url.searchParams.set("access_token", accessToken);
+  const body = await request<{ status_code: ContainerStatus; status?: string }>(url.toString());
+  return { code: body.status_code, detail: body.status ?? null };
+}
+
+export async function publishContainer(opts: { igUserId: string; accessToken: string; containerId: string }): Promise<string> {
+  const body = await request<{ id: string }>(
+    `${GRAPH_BASE}/${GRAPH_VERSION}/${opts.igUserId}/media_publish`,
+    form({ creation_id: opts.containerId, access_token: opts.accessToken }),
+  );
+  return body.id;
+}
+
+export async function getMediaPermalink(mediaId: string, accessToken: string): Promise<string | null> {
+  const url = new URL(`${GRAPH_BASE}/${GRAPH_VERSION}/${mediaId}`);
+  url.searchParams.set("fields", "permalink");
+  url.searchParams.set("access_token", accessToken);
+  const body = await request<{ permalink?: string }>(url.toString());
+  return body.permalink ?? null;
+}
+
+/** Publicaciones hechas por API en las últimas 24 h y el máximo permitido. */
+export async function getPublishingQuota(igUserId: string, accessToken: string) {
+  const url = new URL(`${GRAPH_BASE}/${GRAPH_VERSION}/${igUserId}/content_publishing_limit`);
+  url.searchParams.set("fields", "quota_usage,config");
+  url.searchParams.set("access_token", accessToken);
+  const body = await request<{ data: { quota_usage: number; config?: { quota_total?: number } }[] }>(url.toString());
+  const entry = body.data?.[0];
+  return { used: entry?.quota_usage ?? 0, total: entry?.config?.quota_total ?? 100 };
+}

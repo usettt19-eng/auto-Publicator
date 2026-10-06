@@ -1,7 +1,9 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-export type JobKind = "generate_script" | "render_reel";
+export { DeferJobError, PermanentJobError } from "./job-errors";
+
+export type JobKind = "generate_script" | "render_reel" | "publish_reel";
 export type JobPayload = { reelId: string; feedback?: string };
 export type Job = {
   id: string;
@@ -36,18 +38,43 @@ export async function completeJob(jobId: string) {
   await admin.from("jobs").update({ status: "succeeded", updated_at: new Date().toISOString() }).eq("id", jobId);
 }
 
-/** Reintenta con backoff exponencial (30 s, 2 min…) hasta MAX_ATTEMPTS. Devuelve si se dio por fallido. */
-export async function failJob(job: Job, message: string): Promise<boolean> {
+/**
+ * Reintenta con backoff exponencial (30 s, 2 min…) hasta MAX_ATTEMPTS, o falla del todo si
+ * `permanent`. Devuelve si el trabajo quedó como fallido definitivamente.
+ */
+export async function failJob(job: Job, message: string, opts: { permanent?: boolean } = {}): Promise<boolean> {
   const admin = createAdminClient();
-  const exhausted = job.attempts >= MAX_ATTEMPTS;
+  const exhausted = opts.permanent || job.attempts >= MAX_ATTEMPTS;
   await admin
     .from("jobs")
     .update({
       status: exhausted ? "failed" : "queued",
       last_error: message,
-      run_after: new Date(Date.now() + 30_000 * 4 ** (job.attempts - 1)).toISOString(),
+      run_after: new Date(Date.now() + 30_000 * 4 ** Math.max(0, Math.min(job.attempts, MAX_ATTEMPTS) - 1)).toISOString(),
       updated_at: new Date().toISOString(),
     })
     .eq("id", job.id);
   return exhausted;
+}
+
+export async function deferJob(job: Job, delaySeconds: number, reason: string) {
+  const admin = createAdminClient();
+  await admin
+    .from("jobs")
+    .update({
+      status: "queued",
+      attempts: Math.max(0, job.attempts - 1),
+      last_error: reason,
+      run_after: new Date(Date.now() + delaySeconds * 1000).toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", job.id);
+}
+
+/** Encola la publicación de los reels aprobados cuya hora ya llegó. */
+export async function enqueueDuePublications(): Promise<number> {
+  const admin = createAdminClient();
+  const { data, error } = await admin.rpc("enqueue_due_publications", { p_limit: 20 });
+  if (error) throw error;
+  return (data as number | null) ?? 0;
 }

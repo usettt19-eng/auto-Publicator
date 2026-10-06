@@ -32,6 +32,8 @@ type ReelRow = {
   revision: number;
   scheduled_at: string | null;
   script_json: unknown;
+  video_url: string | null;
+  failed_stage: "script" | "render" | "publish" | null;
 };
 
 function parseFutureDate(value: string): string {
@@ -76,7 +78,7 @@ export async function reviewReel(opts: {
   const admin = createAdminClient();
   const { data: reel, error } = await admin
     .from("reels")
-    .select("id, workspace_id, status, revision, scheduled_at, script_json")
+    .select("id, workspace_id, status, revision, scheduled_at, script_json, video_url, failed_stage")
     .eq("id", opts.reelId)
     .maybeSingle<ReelRow>();
   if (error) throw error;
@@ -124,7 +126,15 @@ export async function reviewReel(opts: {
       break;
     case "retry":
       update.error = null;
-      update.revision = reel.revision + 1;
+      update.failed_stage = null;
+      if (reel.failed_stage === "publish" && reel.video_url) {
+        // El video está bien: vuelve a "Pendiente de aprobación" para elegir otra fecha.
+        status = "ready";
+        update.status = status;
+        update.scheduled_at = null;
+      } else {
+        update.revision = reel.revision + 1;
+      }
       break;
     case "unapprove":
       break;
@@ -150,7 +160,7 @@ export async function reviewReel(opts: {
 
   if (input.action === "request_changes") {
     await enqueueJob(reel.workspace_id, "generate_script", { reelId: reel.id, feedback: note! });
-  } else if (input.action === "retry") {
+  } else if (input.action === "retry" && status === "queued") {
     await enqueueJob(reel.workspace_id, reel.script_json ? "render_reel" : "generate_script", { reelId: reel.id });
   }
   return { status };

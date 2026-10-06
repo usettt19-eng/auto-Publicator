@@ -11,7 +11,18 @@ import { env } from "@/lib/env";
 import { searchVerticalClip } from "@/lib/media/pexels";
 import { synthesizeSpeech } from "@/lib/media/tts";
 import { generateReelScript } from "@/lib/reels/content";
-import { enqueueJob, type Job } from "@/lib/reels/jobs";
+import { getAccessToken } from "@/lib/instagram/accounts";
+import {
+  createReelContainer,
+  getContainerStatus,
+  getMediaPermalink,
+  getPublishingQuota,
+  getRecentMedia,
+  publishContainer,
+} from "@/lib/instagram/api";
+import { currentPeriodStart } from "@/lib/plans";
+import { enqueueJob, PermanentJobError, type Job } from "@/lib/reels/jobs";
+import { publishReel } from "@/lib/reels/publish-flow";
 import { buildFullCaption, type ReelScript } from "@/lib/reels/schema";
 import { assertPublicHost } from "@/lib/scraper/url-guard";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -262,12 +273,101 @@ async function notifyReelReady(reelId: string) {
   });
 }
 
-/** Marca el reel como fallido cuando su trabajo agota los reintentos. */
-export async function markReelFailed(reelId: string, message: string) {
-  await setReel(reelId, { status: "failed", error: message.slice(0, 1000) });
+// ---------------------------------------------------------------------------
+// publish_reel
+// ---------------------------------------------------------------------------
+
+type PublishRow = {
+  id: string;
+  workspace_id: string;
+  status: string;
+  caption: string | null;
+  video_url: string | null;
+  scheduled_at: string | null;
+  ig_container_id: string | null;
+  instagram_account_id: string | null;
+};
+
+export async function handlePublishReel(job: Job) {
+  const admin = createAdminClient();
+  const { data: reel, error } = await admin
+    .from("reels")
+    .select("id, workspace_id, status, caption, video_url, scheduled_at, ig_container_id, instagram_account_id")
+    .eq("id", job.payload.reelId)
+    .single<PublishRow>();
+  if (error) throw error;
+  if (reel.status !== "publishing") return;
+  if (!reel.video_url) throw new PermanentJobError("El reel no tiene video");
+
+  // La cuenta del reel o, si se creó antes de conectar Instagram, la más reciente del workspace.
+  let accountQuery = admin.from("instagram_accounts").select("id, ig_user_id").eq("workspace_id", reel.workspace_id);
+  accountQuery = reel.instagram_account_id ? accountQuery.eq("id", reel.instagram_account_id) : accountQuery;
+  const { data: account } = await accountQuery.order("connected_at", { ascending: false }).limit(1).maybeSingle();
+  if (!account) throw new PermanentJobError("No hay ninguna cuenta de Instagram conectada");
+
+  let token: string;
+  try {
+    token = await getAccessToken(account.id);
+  } catch (err) {
+    throw new PermanentJobError(err instanceof Error ? err.message : "Token de Instagram no válido; vuelve a conectar la cuenta");
+  }
+
+  const igUserId = account.ig_user_id as string;
+  const caption = reel.caption ?? "";
+  const outcome = await publishReel(
+    {
+      api: {
+        createContainer: () => createReelContainer({ igUserId, accessToken: token, videoUrl: reel.video_url!, caption }),
+        getContainerStatus: (id) => getContainerStatus(id, token),
+        getQuota: () => getPublishingQuota(igUserId, token),
+        publish: (containerId) => publishContainer({ igUserId, accessToken: token, containerId }),
+        getPermalink: (mediaId) => getMediaPermalink(mediaId, token),
+        listRecentMedia: () => getRecentMedia(token, 10),
+      },
+      store: {
+        saveContainer: (containerId) => setReel(reel.id, { ig_container_id: containerId, instagram_account_id: account.id }),
+        markPublished: async ({ mediaId, permalink }) => {
+          await setReel(reel.id, {
+            status: "published",
+            published_at: new Date().toISOString(),
+            ig_media_id: mediaId,
+            ig_permalink: permalink,
+            error: null,
+            failed_stage: null,
+          });
+          await admin.rpc("increment_usage", {
+            p_workspace: reel.workspace_id,
+            p_period: currentPeriodStart(),
+            p_field: "reels_published",
+          });
+        },
+      },
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+      now: () => Date.now(),
+    },
+    {
+      containerId: reel.ig_container_id,
+      reuseContainer: job.attempts > 1,
+      caption,
+      scheduledAt: reel.scheduled_at ?? new Date().toISOString(),
+    },
+  );
+  console.info(`[publish] reel ${reel.id}: ${outcome}`);
+}
+
+const STAGE_FOR: Record<Job["kind"], "script" | "render" | "publish"> = {
+  generate_script: "script",
+  render_reel: "render",
+  publish_reel: "publish",
+};
+
+/** Marca el reel como fallido cuando su trabajo agota los reintentos o falla sin remedio. */
+export async function markReelFailed(job: Job, message: string) {
+  await setReel(job.payload.reelId, { status: "failed", error: message.slice(0, 1000), failed_stage: STAGE_FOR[job.kind] });
 }
 
 export const handlers: Record<Job["kind"], (job: Job) => Promise<void>> = {
   generate_script: handleGenerateScript,
   render_reel: handleRenderReel,
+  publish_reel: handlePublishReel,
 };

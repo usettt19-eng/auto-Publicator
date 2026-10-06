@@ -15,6 +15,8 @@ export type ReviewableReel = {
   thumbnail_url: string | null;
   scheduled_at: string | null;
   error: string | null;
+  ig_permalink?: string | null;
+  failed_stage?: "script" | "render" | "publish" | null;
 };
 
 type Result = { ok: true } | { ok: false; error: string };
@@ -102,7 +104,18 @@ export function ReelReview({
           )}
         </div>
         <h3 className="font-semibold">{reel.title ?? "Reel sin título"}</h3>
-        {reel.error && <p className="text-sm text-red-600">{reel.error}</p>}
+        {reel.error && (
+          <p className="text-sm text-red-600">
+            {reel.failed_stage === "publish" ? "No se pudo publicar en Instagram: " : ""}
+            {reel.error}
+            {reel.failed_stage === "publish" && mode === "dashboard" && " · Pulsa Reintentar para elegir otra fecha y volver a aprobarlo."}
+          </p>
+        )}
+        {reel.ig_permalink && (
+          <a href={reel.ig_permalink} target="_blank" rel="noreferrer" className="self-start text-sm text-accent hover:underline">
+            Ver en Instagram ↗
+          </a>
+        )}
 
         {canEditCaption ? (
           <label className="flex flex-col gap-1 text-sm">
