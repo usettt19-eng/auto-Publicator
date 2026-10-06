@@ -1,6 +1,6 @@
 # Avance del proyecto: Auto-Publicator
 
-Última actualización: 6 de octubre de 2026 · Rama: `claude/nice-cerf-sjsfhv`
+Última actualización: 6 de octubre de 2026 (fases 1-3) · Rama: `claude/nice-cerf-sjsfhv`
 
 ## Resumen
 
@@ -142,7 +142,8 @@ Sin ninguna clave puedes ver la plantilla de video con `npm run render:sample` (
 - **Cola propia en Postgres** (`jobs` + `claim_job` con `SKIP LOCKED`) en lugar de Redis/BullMQ:
   una pieza menos de infraestructura. Se pueden lanzar varios workers.
 - **El worker es un proceso aparte**, porque Remotion necesita Chromium y varios minutos por
-  render. No puede ir en funciones serverless.
+  render. No puede ir en funciones serverless: hay que desplegarlo en un servidor o contenedor
+  (Railway, Fly.io, un VPS…). La app web puede ir en Vercel.
 - **Bucket público** para los videos: Instagram los descarga desde una URL pública al publicar.
 - **Un workspace por usuario** por ahora; el esquema ya admite varios miembros.
 
@@ -157,6 +158,32 @@ Sin ninguna clave puedes ver la plantilla de video con `npm run render:sample` (
 - **Uso:** el contador de reels se suma al pasar a producción, aunque luego se rechace el reel.
 - **Rendimiento:** el render tarda aproximadamente lo que dura el video multiplicado por 1-2 en
   una CPU normal.
+
+---
+
+## 📜 Registro de avances
+
+### 6 oct 2026: fases 2 y 3 (commit `f151eea`)
+- Plan de ideas con Claude (`/ideas`) y paso a producción con límite mensual por plan.
+- Worker: guion por escenas → voz (ElevenLabs) → clips (Pexels) → render (Remotion) → Storage → email.
+- Cola de trabajos en Postgres con reintentos (`claim_job`, `SKIP LOCKED`).
+- `/reels`: aprobar y programar, pedir cambios, editar caption, reprogramar, rechazar y reintentar.
+- Email con enlace firmado y página pública `/r/[token]`.
+- Video de ejemplo renderizado con la plantilla real (`npm run render:sample`).
+- **Bugs encontrados y corregidos:**
+  - "Reintentar" no volvía a renderizar si el guion ya existía (el worker ignoraba los reels en `queued`).
+  - Remotion fallaba con la condición `react-server`; se sustituyó por un shim de `server-only` solo para el worker.
+
+### 6 oct 2026: documento de avance (commit `ac4ee10`)
+- Creado este `AVANCE.md` con el estado y la checklist de claves.
+
+### 6 oct 2026: fase 1 (commit `e6873a2`)
+- Scaffold con Next.js 16, login con Supabase, OAuth de Instagram, auditoría de marca, Brand Kit editable
+  y esquema SQL completo con RLS.
+- **Bugs encontrados y corregidos:**
+  - `ftp://x.com` se aceptaba como `https://ftp://x.com`.
+  - La migración usaba la extensión `pgcrypto`, que no hace falta (`gen_random_uuid()` viene incluida).
+  - El scraper priorizaba logos de clientes sobre el de la marca y no leía colores `rgb()`.
 
 ---
 
