@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PROTECTED_PREFIXES = ["/dashboard", "/brand", "/ideas", "/reels", "/settings", "/inbox", "/automations"];
+const PROTECTED_PREFIXES = ["/dashboard", "/brand", "/ideas", "/reels", "/settings", "/inbox", "/automations", "/analytics", "/billing"];
 
 /** Refresca la sesión de Supabase y protege las rutas privadas. */
 export async function proxy(request: NextRequest) {

@@ -233,3 +233,60 @@ export async function sendInstagramMessage(opts: {
   });
   return body.message_id ?? null;
 }
+
+// ---------------------------------------------------------------------------
+// Insights
+// ---------------------------------------------------------------------------
+
+export type ReelInsights = {
+  views: number;
+  reach: number;
+  likes: number;
+  comments: number;
+  shares: number;
+  saves: number;
+  total_interactions: number;
+  avg_watch_time_ms: number | null;
+};
+
+const INSIGHT_METRICS = ["views", "reach", "likes", "comments", "shares", "saved", "total_interactions", "ig_reels_avg_watch_time"];
+// Meta cambia los nombres de métricas con frecuencia; si la petición completa falla, se usa este mínimo.
+const BASIC_INSIGHT_METRICS = ["reach", "likes", "comments", "shares", "saved", "total_interactions"];
+
+type InsightsResponse = {
+  data?: { name: string; values?: { value?: number }[]; total_value?: { value?: number } }[];
+};
+
+/** Convierte la respuesta de /insights en números (0 si falta una métrica). */
+export function parseInsights(body: InsightsResponse): ReelInsights {
+  const get = (name: string) => {
+    const metric = body.data?.find((m) => m.name === name);
+    const value = metric?.total_value?.value ?? metric?.values?.[0]?.value;
+    return typeof value === "number" ? value : null;
+  };
+  return {
+    views: get("views") ?? get("plays") ?? 0,
+    reach: get("reach") ?? 0,
+    likes: get("likes") ?? 0,
+    comments: get("comments") ?? 0,
+    shares: get("shares") ?? 0,
+    saves: get("saved") ?? 0,
+    total_interactions: get("total_interactions") ?? 0,
+    avg_watch_time_ms: get("ig_reels_avg_watch_time"),
+  };
+}
+
+export async function getReelInsights(mediaId: string, accessToken: string): Promise<ReelInsights> {
+  const fetchMetrics = (metrics: string[]) => {
+    const url = new URL(`${GRAPH_BASE}/${GRAPH_VERSION}/${mediaId}/insights`);
+    url.searchParams.set("metric", metrics.join(","));
+    url.searchParams.set("access_token", accessToken);
+    return request<InsightsResponse>(url.toString());
+  };
+  try {
+    return parseInsights(await fetchMetrics(INSIGHT_METRICS));
+  } catch (err) {
+    if (err instanceof InstagramApiError && err.status === 400) return parseInsights(await fetchMetrics(BASIC_INSIGHT_METRICS));
+    throw err;
+  }
+}

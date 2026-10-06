@@ -20,6 +20,7 @@ import {
   getRecentMedia,
   publishContainer,
 } from "@/lib/instagram/api";
+import { generateWeeklyReport, syncWorkspaceInsights } from "@/lib/analytics/service";
 import { handleComment, handleDm } from "@/lib/engagement/process";
 import { currentPeriodStart } from "@/lib/plans";
 import { enqueueJob, PermanentJobError, requireReelId, type Job } from "@/lib/reels/jobs";
@@ -374,4 +375,13 @@ export const handlers: Record<Job["kind"], (job: Job) => Promise<void>> = {
   publish_reel: handlePublishReel,
   handle_comment: async (job) => handleComment(job.payload.commentId ?? ""),
   handle_dm: async (job) => handleDm(job.payload.dmId ?? ""),
+  sync_insights: async (job) => {
+    const updated = await syncWorkspaceInsights(job.workspace_id);
+    console.info(`[insights] ${updated} reels actualizados`);
+  },
+  weekly_report: async (job) => {
+    // Métricas frescas antes de escribir el informe; si fallan, se usa lo último guardado.
+    await syncWorkspaceInsights(job.workspace_id).catch((err) => console.warn("[report] sin métricas nuevas", err));
+    await generateWeeklyReport(job.workspace_id);
+  },
 };

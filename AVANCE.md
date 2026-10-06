@@ -1,6 +1,6 @@
 # Avance del proyecto: Auto-Publicator
 
-Última actualización: 6 de octubre de 2026 (fases 1-5) · Rama: `claude/nice-cerf-sjsfhv`
+Última actualización: 6 de octubre de 2026 (fases 1-6: todo el código) · Rama: `claude/nice-cerf-sjsfhv`
 
 ## Resumen
 
@@ -11,9 +11,10 @@
 | 3 | Dashboard de aprobación y emails con enlace firmado | ✅ Código · ⏳ falta probar con claves |
 | 4 | Scheduler y publicación automática en Instagram | ✅ Código · ⏳ falta probar con claves |
 | 5 | Comentarios y DMs por palabra clave, respuestas con IA | ✅ Código · ⏳ falta probar con claves |
-| 6 | Servidor MCP, analíticas y Stripe | ⬜ Pendiente |
+| 6 | Servidor MCP, analíticas con resumen semanal y pagos con Stripe | ✅ Código · ⏳ falta probar con claves |
 
-**Bloqueo actual:** conseguir las claves (checklist abajo) para probar las fases 1-5 de punta a punta.
+**Estado:** las 6 fases están programadas. **Bloqueo actual:** conseguir las claves (checklist abajo)
+para probar todo de punta a punta con cuentas reales.
 
 ---
 
@@ -102,24 +103,55 @@
 - El worker atiende primero publicar y responder, y después los renders.
 - **Cabecera adaptada a móvil:** la navegación se desplaza en horizontal.
 
+## ✅ Fase 6: MCP, analíticas y pagos
+
+- **Servidor MCP** en `/api/mcp`: usa Auto-Publicator desde Claude Code, Claude Desktop u otro
+  cliente MCP.
+  - 13 herramientas: Brand Kit, ideas, producir, listar, aprobar, pedir cambios, rechazar,
+    reprogramar, analíticas, reglas de palabra clave y responder comentarios.
+  - Las claves de API se crean en **Ajustes → Conector MCP**. Se muestran una sola vez y en la base
+    de datos solo se guarda su hash. Se pueden revocar.
+- **`/analytics`:**
+  - Totales: reproducciones, alcance, engagement, guardados y compartidos.
+  - Rendimiento por pilar y por formato.
+  - Tabla de reels, en vista de 7 o 30 días.
+- **Métricas automáticas:** cada 6 h el worker lee las métricas de los reels de los últimos 30 días.
+- **Resumen semanal con Claude:** cada lunes escribe logros, aprendizajes y recomendaciones con
+  cifras, y **añade 3-5 ideas al plan** (ajuste del calendario). También se puede generar con un botón.
+- **`/billing` con Stripe:** plan actual y uso del mes, pago (Checkout) y portal del cliente para
+  cambiar de plan, actualizar la tarjeta o cancelar. Un webhook mantiene el plan sincronizado.
+  Solo el dueño puede pagar.
+
 ### Verificado
 
-- [x] 75 tests unitarios. Incluyen:
+- [x] 92 tests unitarios. Incluyen:
   - 9 escenarios de publicación con un Instagram simulado (contenedor caducado, rechazado, lento, ya
     publicado, cuota agotada…) y el formato real de las llamadas a la API.
   - Palabras clave, plantillas, decisiones sobre comentarios, parseo de webhooks y firma.
+  - El servidor MCP probado con un cliente MCP real: lista las 13 herramientas, valida argumentos y
+    devuelve los errores.
+  - Estadísticas, lectura de métricas, semana y planes de Stripe.
+- [x] Con la app arrancada:
+  - MCP rechaza peticiones sin clave (401).
+  - Stripe rechaza webhooks sin firma (400) y responde 500 si la BD falla, para que reintente.
+- [x] Gráficos de `/analytics` renderizados y revisados en escritorio y móvil
 - [x] Webhook probado con la app arrancada: verificación de Meta, firma inválida rechazada (401) y
   500 cuando la BD falla, para que Meta reintente
 - [x] Typecheck, lint y build de producción
 - [x] Render real de un reel de ejemplo con la plantilla (`npm run render:sample`): MP4 H.264 1080×1920
-- [x] Las 4 migraciones ejecutadas en Postgres embebido. Comprobados RLS, la cola atómica, el contador
-  de uso, el scheduler y la idempotencia de comentarios y respuestas a DMs
+- [x] Las 5 migraciones ejecutadas en Postgres embebido. Comprobados:
+  - RLS (las claves de un workspace no las ve otro y no se pueden crear desde el navegador).
+  - La cola atómica, el contador de uso y el scheduler.
+  - La idempotencia de comentarios y DMs.
+  - Las tareas periódicas: sin duplicados y sin informe repetido en la misma semana.
 - [x] El worker arranca (solo se detiene por falta de claves)
 - [ ] Login, OAuth de Instagram y auditoría con claves reales
 - [ ] Guion y render con Claude, Pexels y ElevenLabs reales
 - [ ] Email real con Resend
 - [ ] Publicación real en una cuenta tester de Instagram
 - [ ] Webhooks reales de comentarios y DMs (palabra clave → DM)
+- [ ] Conectar el MCP desde Claude Code con una clave real
+- [ ] Pago de prueba en Stripe (modo test) y cambio de plan
 
 ---
 
@@ -138,6 +170,9 @@ Copia `.env.example` a `.env.local` y rellena:
 | `TOKEN_ENCRYPTION_KEY` | Cifrar tokens | `openssl rand -base64 32` | [ ] |
 | `APPROVAL_LINK_SECRET` | Firmar enlaces de email | `openssl rand -base64 32` | [ ] |
 | `INSTAGRAM_WEBHOOK_VERIFY_TOKEN` | Verificar los webhooks de Meta | Lo inventas tú (cualquier texto largo) y lo pegas en Meta | [ ] |
+| `STRIPE_SECRET_KEY` | Pagos *(opcional)* | Stripe → Developers → API keys (`sk_test_…` para pruebas) | [ ] |
+| `STRIPE_WEBHOOK_SECRET` | Pagos *(opcional)* | Stripe → Developers → Webhooks → tu endpoint → Signing secret | [ ] |
+| `STRIPE_PRICE_SELF_SERVE` / `STRIPE_PRICE_DONE_FOR_YOU` | Precios de los planes *(opcional)* | Stripe → Product catalog → precio mensual → ID `price_…` | [ ] |
 | `NEXT_PUBLIC_APP_URL` | Redirects y enlaces | Tu URL pública HTTPS (en local, ngrok o cloudflared) | [ ] |
 | `PEXELS_API_KEY` | Clips de stock *(opcional)* | [pexels.com/api](https://www.pexels.com/api/) (gratis) | [ ] |
 | `ELEVENLABS_API_KEY` | Voz en off *(opcional)* | [elevenlabs.io](https://elevenlabs.io) → Profile → API key | [ ] |
@@ -152,7 +187,7 @@ sin ElevenLabs, video sin voz; sin Resend, el enlace de aprobación se escribe e
 
 **Supabase**
 - [ ] Crear el proyecto
-- [ ] Aplicar las 4 migraciones de `supabase/migrations/`, en orden
+- [ ] Aplicar las 5 migraciones de `supabase/migrations/`, en orden
 - [ ] Authentication → URL Configuration: añadir `{APP_URL}/auth/callback` a las Redirect URLs
 
 **Meta / Instagram**
@@ -166,6 +201,11 @@ sin ElevenLabs, video sin voz; sin Resend, el enlace de aprobación se escribe e
 
 **Anthropic**
 - [ ] Cargar saldo en la cuenta de la API
+
+**Stripe** (si quieres cobrar)
+- [ ] Crear los 2 productos con precio mensual
+- [ ] Webhook a `{APP_URL}/api/webhooks/stripe` con `checkout.session.completed` y `customer.subscription.*`
+- [ ] Activar el *Customer portal*
 
 **Resend** (si quieres emails)
 - [ ] Verificar un dominio para el remitente
@@ -187,6 +227,10 @@ sin ElevenLabs, video sin voz; sin Resend, el enlace de aprobación se escribe e
    verás `[scheduler]` y `[publish]`, y el reel aparecerá en *Publicados* con "Ver en Instagram".
 10. Crea una regla en `/automations` (p. ej. GROW), comenta "grow" en un reel desde otra cuenta y
     comprueba la respuesta y el DM. Pon el modo IA en *Con aprobación* y revisa `/inbox`.
+11. En **Ajustes → Conector MCP** crea una clave y conéctala en Claude Code con el comando que
+    aparece. Pídele "¿qué reels tengo pendientes de aprobar?".
+12. En `/billing`, paga el plan Self-serve con la tarjeta de prueba `4242 4242 4242 4242` y
+    comprueba que el límite sube a 100.
 
 Sin ninguna clave puedes ver la plantilla de video con `npm run render:sample` (genera
 `out/sample.mp4`) o editarla en vivo con `npm run remotion:studio`.
@@ -221,6 +265,15 @@ Sin ninguna clave puedes ver la plantilla de video con `npm run render:sample` (
 ---
 
 ## 📜 Registro de avances
+
+### 6 oct 2026: fase 6
+- Servidor MCP con 13 herramientas y claves de API, analíticas con métricas automáticas y resumen
+  semanal con Claude que añade ideas al plan, y pagos con Stripe (checkout, portal y webhook).
+- **Bugs encontrados y corregidos al revisar:**
+  - Al renderizar la página de analíticas para revisarla: cada fila de barras calculaba su propio
+    ancho, así que las barras **no eran comparables entre sí**. Ahora todas tienen la misma
+    longitud de pista.
+  - Los porcentajes mezclaban "6,4 %" y "6.2 %". Ahora usan siempre el formato español.
 
 ### 6 oct 2026: fase 5 (commit `689526b`)
 - Webhooks de Meta, reglas de palabra clave con respuesta pública y DM privado, respuestas a
@@ -271,14 +324,21 @@ Sin ninguna clave puedes ver la plantilla de video con `npm run render:sample` (
 
 ---
 
-## ⏭️ Siguiente: fase 6 (servidor MCP, analíticas y Stripe)
+## ⏭️ Siguiente: probar con claves reales y desplegar
 
-- [ ] **Servidor MCP** (HTTP, autenticado por usuario) con herramientas: `get_brand_kit`,
-      `generate_reel_ideas`, `create_reel`, `list_pending_reels`, `approve_reel`, `request_changes`,
-      `schedule_reel`, `get_analytics`, `set_keyword_rule`
-- [ ] **Analíticas por reel** (Insights API): reproducciones, alcance, guardados, compartidos, comentarios
-- [ ] **Resumen semanal con Claude** y ajuste del calendario según lo que mejor funcionó
-- [ ] **Stripe:** planes, checkout, portal de cliente y webhooks que actualizan `subscriptions`
+Todo el código de las 6 fases está hecho. Pasos para ponerlo en marcha:
 
-> Lo que se puede hacer sin claves: el servidor MCP (probándolo con un cliente MCP local) y la lógica
-> de analíticas con datos simulados. Stripe necesita al menos claves de prueba (`sk_test_…`).
+1. **Claves y configuración:** completar la checklist de arriba.
+2. **Prueba de punta a punta:** seguir los pasos de "Cómo probar todo" y anotar aquí los fallos.
+3. **Despliegue:**
+   - App web en Vercel.
+   - Worker en Railway, Fly.io o un VPS (necesita Chromium para Remotion).
+   - Supabase en producción.
+4. **App Review de Meta** con un screencast de cada permiso.
+
+**Mejoras opcionales** para después:
+
+- OAuth en el servidor MCP (lo exigen los conectores personalizados de claude.ai).
+- Música de fondo libre de derechos en los videos.
+- Invitar a otros miembros al workspace.
+- Contar el uso al publicar en lugar de al producir.

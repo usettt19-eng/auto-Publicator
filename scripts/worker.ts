@@ -9,6 +9,7 @@ import {
   deferJob,
   DeferJobError,
   enqueueDuePublications,
+  enqueuePeriodicJobs,
   failJob,
   PermanentJobError,
   type Job,
@@ -24,6 +25,8 @@ const KINDS = (process.env.WORKER_KINDS?.split(",") ?? [
   "handle_dm",
   "generate_script",
   "render_reel",
+  "sync_insights",
+  "weekly_report",
 ]) as Job["kind"][];
 // Trabajos rápidos y sensibles al tiempo: se atienden antes que guiones y renders.
 const PRIORITY: Job["kind"][] = ["publish_reel", "handle_comment", "handle_dm"];
@@ -31,7 +34,8 @@ let stopping = false;
 
 async function runJob(job: Job) {
   const started = Date.now();
-  console.info(`[worker] ${job.kind} ${job.payload.reelId ?? job.payload.commentId ?? job.payload.dmId} (intento ${job.attempts})`);
+  const target = job.payload.reelId ?? job.payload.commentId ?? job.payload.dmId ?? `workspace ${job.workspace_id}`;
+  console.info(`[worker] ${job.kind} ${target} (intento ${job.attempts})`);
   try {
     await handlers[job.kind](job);
     await completeJob(job.id);
@@ -75,10 +79,26 @@ async function runScheduler() {
   if (queued) console.info(`[scheduler] ${queued} reels listos para publicar`);
 }
 
+const PERIODIC_MS = Number(process.env.PERIODIC_MS ?? 15 * 60_000);
+let lastPeriodicRun = 0;
+/** Métricas (cada 6 h por workspace) e informes semanales; las funciones SQL evitan duplicados. */
+async function runPeriodic() {
+  if (Date.now() - lastPeriodicRun < PERIODIC_MS || !KINDS.includes("sync_insights")) return;
+  lastPeriodicRun = Date.now();
+  const queued = await enqueuePeriodicJobs().catch((err) => {
+    console.error("[scheduler] error en tareas periódicas", err);
+    return null;
+  });
+  if (queued && (queued.insights || queued.reports)) {
+    console.info(`[scheduler] ${queued.insights} sincronizaciones de métricas, ${queued.reports} informes semanales`);
+  }
+}
+
 async function main() {
   console.info(`[worker] iniciado (${KINDS.join(", ")})`);
   while (!stopping) {
     await runScheduler();
+    await runPeriodic();
     // Publicar y responder tienen prioridad: un render largo no debe retrasarlos.
     const job = await claimNext().catch((err) => {
       console.error("[worker] error al leer la cola", err);

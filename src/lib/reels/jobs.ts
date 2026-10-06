@@ -3,7 +3,14 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export { DeferJobError, PermanentJobError } from "./job-errors";
 
-export type JobKind = "generate_script" | "render_reel" | "publish_reel" | "handle_comment" | "handle_dm";
+export type JobKind =
+  | "generate_script"
+  | "render_reel"
+  | "publish_reel"
+  | "handle_comment"
+  | "handle_dm"
+  | "sync_insights"
+  | "weekly_report";
 export type JobPayload = { reelId?: string; feedback?: string; commentId?: string; dmId?: string };
 
 export const REEL_JOB_KINDS: JobKind[] = ["generate_script", "render_reel", "publish_reel"];
@@ -85,4 +92,16 @@ export async function enqueueDuePublications(): Promise<number> {
   const { data, error } = await admin.rpc("enqueue_due_publications", { p_limit: 20 });
   if (error) throw error;
   return (data as number | null) ?? 0;
+}
+
+/** Encola la sincronización de métricas (cada 6 h) y los informes semanales pendientes. */
+export async function enqueuePeriodicJobs(): Promise<{ insights: number; reports: number }> {
+  const admin = createAdminClient();
+  const [insights, reports] = await Promise.all([
+    admin.rpc("enqueue_insight_syncs", { p_interval: "6 hours" }),
+    admin.rpc("enqueue_weekly_reports"),
+  ]);
+  if (insights.error) throw insights.error;
+  if (reports.error) throw reports.error;
+  return { insights: (insights.data as number | null) ?? 0, reports: (reports.data as number | null) ?? 0 };
 }

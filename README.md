@@ -12,7 +12,7 @@ web y la identidad de marca del usuario. Nada se publica sin aprobación humana.
 | 3 | Dashboard de aprobación y emails con enlace firmado | ✅ |
 | 4 | Scheduler y auto-posting en Instagram | ✅ |
 | 5 | Comentarios y DMs por palabra clave, respuestas con IA | ✅ |
-| 6 | Servidor MCP, analíticas y Stripe | Pendiente |
+| 6 | Servidor MCP, analíticas con resumen semanal y pagos con Stripe | ✅ |
 
 ## Stack
 
@@ -58,6 +58,13 @@ src/worker/handlers.ts      Trabajos del worker: guion → render → email · p
   automations/              Reglas de palabra clave y modo de respuesta con IA
   api/webhooks/instagram/   Webhooks de Meta (verificación + firma)
 src/lib/engagement/         Palabras clave, parseo de webhooks, respuestas con Claude y procesamiento
+src/lib/mcp/                Servidor MCP (13 herramientas), claves de API y servicios
+src/lib/analytics/          Métricas (Insights API), estadísticas y resumen semanal con Claude
+src/lib/billing/            Stripe: checkout, portal, webhooks y planes
+  analytics/                KPIs, rendimiento por pilar y formato, resumen semanal
+  billing/                  Plan, uso y pagos
+  api/mcp/                  Endpoint MCP (HTTP, autenticado con clave de API)
+  api/webhooks/stripe/      Webhooks de Stripe
 scripts/worker.ts           Bucle del worker (npm run worker)
 scripts/render-sample.ts    Render de ejemplo sin claves (npm run render:sample)
 tests/                      Tests unitarios
@@ -234,3 +241,46 @@ Meta ──webhook──▶ /api/webhooks/instagram  (firma X-Hub-Signature-256 
 - **Respuestas con IA:** Claude clasifica cada comentario (pregunta, elogio, queja, spam,
   tóxico…). No responde al spam ni a los tóxicos, y no inventa precios ni promesas.
 - **Errores de base de datos:** el webhook responde 500 para que Meta reintente; no se pierden eventos.
+
+## Servidor MCP (fase 6)
+
+Endpoint: `{NEXT_PUBLIC_APP_URL}/api/mcp`. Usa Streamable HTTP sin estado y respuestas JSON. Cada
+petición se autentica con `Authorization: Bearer ap_…`; las claves se crean en **Ajustes → Conector
+MCP** y en la base de datos solo se guarda su hash SHA-256.
+
+```bash
+claude mcp add --transport http auto-publicator https://tu-app.com/api/mcp --header "Authorization: Bearer ap_…"
+```
+
+**Herramientas**
+
+- **Marca e ideas:** `get_brand_kit`, `list_ideas`, `generate_reel_ideas`, `create_reels`.
+- **Reels:** `list_reels`, `approve_reel`, `request_changes`, `reject_reel`, `schedule_reel`.
+- **Analíticas:** `get_analytics`.
+- **Comentarios y DMs:** `set_keyword_rule`, `list_pending_comments`, `reply_to_comment`.
+
+Las herramientas reutilizan la misma lógica que el panel (máquina de estados, límites del plan,
+envío sin duplicados). `approve_reel` indica al modelo que solo apruebe cuando la persona lo pida.
+
+> Los conectores personalizados de claude.ai exigen OAuth. Con una clave de API funciona en Claude
+> Code, Claude Desktop y otros clientes que permiten cabeceras. Añadir OAuth es una mejora pendiente.
+
+## Analíticas
+
+- **Métricas:** el worker lee cada 6 h las métricas de los reels publicados en los últimos 30 días
+  (`views`, `reach`, `likes`, `comments`, `shares`, `saved`, `total_interactions` y tiempo medio
+  de visionado). Si Meta rechaza alguna métrica, se repite la petición con un conjunto básico.
+- **Resumen semanal:** cada lunes Claude escribe el resumen (logros, aprendizajes y
+  recomendaciones con cifras) y añade 3-5 ideas al plan de la semana. Así el calendario se ajusta
+  a lo que mejor funcionó. También se puede generar a mano desde `/analytics`.
+
+## Pagos (Stripe)
+
+1. Crea dos precios mensuales (Self-serve y Done-for-you) y pon sus IDs en `STRIPE_PRICE_*`.
+2. Crea un webhook a `{APP_URL}/api/webhooks/stripe` con los eventos `checkout.session.completed` y
+   `customer.subscription.*`, y copia el *signing secret* en `STRIPE_WEBHOOK_SECRET`.
+3. Activa el *Customer portal* en Stripe para cambiar de plan, actualizar la tarjeta y cancelar.
+
+El plan se calcula a partir del estado de la suscripción. `active`, `trialing` y `past_due` (este
+último como periodo de gracia) dan acceso; `canceled`, `unpaid` e `incomplete` vuelven al plan
+gratuito. Solo el dueño del workspace puede pagar o cambiar de plan.

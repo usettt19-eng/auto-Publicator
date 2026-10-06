@@ -21,8 +21,10 @@ const NAV = [
   { href: "/ideas", label: "Ideas" },
   { href: "/inbox", label: "Bandeja" },
   { href: "/automations", label: "Automatizaciones" },
+  { href: "/analytics", label: "Analíticas" },
   { href: "/brand", label: "Brand Kit" },
   { href: "/settings", label: "Ajustes" },
+  { href: "/billing", label: "Plan" },
 ];
 
 export function Header({ email }: { email?: string }) {

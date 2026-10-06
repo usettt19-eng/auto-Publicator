@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@remotion/bundler": "^4.0.533",
     "@remotion/renderer": "^4.0.533",
     "@supabase/ssr": "^0.12.7",
@@ -26,6 +27,7 @@
     "remotion": "^4.0.533",
     "resend": "^6.32.0",
     "server-only": "^0.0.1",
+    "stripe": "^23.0.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {

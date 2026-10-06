@@ -3,11 +3,13 @@ import { getAccessToken } from "@/lib/instagram/accounts";
 import { getRecentMedia } from "@/lib/instagram/api";
 import { bestPostingHours, type HourStat } from "@/lib/reels/best-hours";
 import { requireWorkspace } from "@/lib/workspace";
+import { env } from "@/lib/env";
+import { ApiKeys, type ApiKeyRow } from "./api-keys";
 import { SettingsForm } from "./settings-form";
 
 export default async function SettingsPage() {
   const { supabase, user, workspace } = await requireWorkspace();
-  const [{ data: ws }, { data: account }] = await Promise.all([
+  const [{ data: ws }, { data: account }, { data: keys }] = await Promise.all([
     supabase.from("workspaces").select("timezone, posting_hour").eq("id", workspace.id).single(),
     supabase
       .from("instagram_accounts")
@@ -16,6 +18,12 @@ export default async function SettingsPage() {
       .order("connected_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    supabase
+      .from("api_keys")
+      .select("id, name, key_prefix, created_at, last_used_at")
+      .eq("workspace_id", workspace.id)
+      .is("revoked_at", null)
+      .order("created_at", { ascending: false }),
   ]);
   const timezone = ws?.timezone ?? "UTC";
 
@@ -39,6 +47,7 @@ export default async function SettingsPage() {
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-10">
         <h1 className="text-2xl font-semibold">Ajustes</h1>
         <SettingsForm zones={Intl.supportedValuesOf("timeZone")} timezone={timezone} postingHour={ws?.posting_hour ?? 18} bestHours={bestHours} bestHoursError={bestHoursError} />
+        <ApiKeys keys={(keys ?? []) as ApiKeyRow[]} mcpUrl={`${env.appUrl()}/api/mcp`} />
       </main>
     </>
   );
