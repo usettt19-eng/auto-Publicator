@@ -188,7 +188,7 @@ Sin ninguna clave puedes ver la plantilla de video con `npm run render:sample` (
 
 ## 📜 Registro de avances
 
-### 6 oct 2026: fase 4
+### 6 oct 2026: fase 4 (commit `bd512e7`)
 - Scheduler en el worker y publicación de reels con la Content Publishing API de Instagram.
 - Flujo de publicación idempotente, con recuperación tras caídas, aplazamiento por cuota y errores
   definitivos frente a reintentables.
